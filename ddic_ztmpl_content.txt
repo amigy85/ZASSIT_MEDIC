@@ -1,0 +1,138 @@
+================================================================================
+DDIC TABLE DEFINITION — ZTMPL_CONTENT
+HTML Template Storage for E-mail Notifications
+================================================================================
+
+TABLE NAME  : ZTMPL_CONTENT
+DESCRIPTION : HTML e-mail template content (line-by-line storage)
+TABLE TYPE  : Transparent table
+DELIVERY CLS: C (Customising, not transported automatically)
+DATA CLASS  : USER (client-specific)
+
+RECOMMENDATION: Create a maintenance view (SM30) on this table so the
+business team can update the HTML template without a developer transport.
+
+--------------------------------------------------------------------------------
+FIELDS
+--------------------------------------------------------------------------------
+
+Field name      Key  Data type  Domain      Length  Description
+-----------     ---  ---------  ----------  ------  ----------------------------
+MANDT           X    CLNT       MANDT            3  Client
+ZTEMPLATE_ID    X    CHAR       -               30  Template identifier
+                                                    (e.g. ZDEBIT_NOTE_HCB)
+ZSEQ            X    NUMC       -                6  Sequence number (sort order)
+ZCONTENT             CHAR       -              255  HTML content line (255 chars
+                                                    avoids the SO10 132-char limit)
+
+--------------------------------------------------------------------------------
+INDEX
+--------------------------------------------------------------------------------
+Primary key: MANDT + ZTEMPLATE_ID + ZSEQ   (unique)
+
+--------------------------------------------------------------------------------
+ABAP DDIC DEFINITION (for manual creation in SE11)
+--------------------------------------------------------------------------------
+
+Table          : ZTMPL_CONTENT
+Short text     : HTML Template Content Lines
+
+Fields tab:
+  MANDT         MANDT      KEY  CLNT 3
+  ZTEMPLATE_ID  CHAR30     KEY  CHAR 30  "Template ID"
+  ZSEQ          NUMC6      KEY  NUMC 6   "Sequence"
+  ZCONTENT      CHAR255         CHAR 255 "HTML Content"
+
+Technical settings:
+  Data class   : USER
+  Size category: 0
+  Buffering    : No buffering (content changes must be immediately visible)
+
+Maintenance view (SM30):
+  Create view ZTMPL_CONTENT_V on ZTMPL_CONTENT
+  Allow: Display, Change, New entries, Delete
+  Generation: Yes (standard maintenance dialog)
+  Auth group : &NC& (or create Z-auth group for template maintenance)
+
+================================================================================
+HOW TO LOAD THE HTML TEMPLATE
+================================================================================
+
+OPTION A — Manual entry via SM30:
+  1. Run SM30 → ZTMPL_CONTENT_V → New Entries
+  2. Template ID: ZDEBIT_NOTE_HCB
+  3. Paste the HTML line by line (copy from template-nota-debito-hcb-so10.html)
+  4. Each line gets an incremental ZSEQ: 000001, 000002, ...
+
+OPTION B — ABAP loader program (recommended for initial load):
+  Run the loader program ZLOAD_EMAIL_TEMPLATE (see below) pointing to
+  the local HTML file. It reads the file and inserts rows automatically.
+
+--------------------------------------------------------------------------------
+LOADER PROGRAM SKELETON (ZLOAD_EMAIL_TEMPLATE)
+--------------------------------------------------------------------------------
+
+REPORT zload_email_template.
+
+PARAMETERS:
+  p_file TYPE rlgrap-filename OBLIGATORY,
+  p_id   TYPE char30          OBLIGATORY DEFAULT 'ZDEBIT_NOTE_HCB',
+  p_del  TYPE abap_bool       DEFAULT abap_true.  " Delete existing before load
+
+START-OF-SELECTION.
+
+  DATA lt_raw TYPE STANDARD TABLE OF string.
+
+  cl_gui_frontend_services=>gui_upload(
+    EXPORTING filename = p_file  filetype = 'ASC'
+    CHANGING  data_tab = lt_raw
+    EXCEPTIONS OTHERS  = 1 ).
+
+  IF sy-subrc <> 0.
+    MESSAGE 'Erro ao abrir ficheiro.' TYPE 'E'.
+    RETURN.
+  ENDIF.
+
+  IF p_del = abap_true.
+    DELETE FROM ztmpl_content WHERE ztemplate_id = p_id.
+  ENDIF.
+
+  DATA lv_seq TYPE numc6 VALUE '000001'.
+  DATA lt_insert TYPE STANDARD TABLE OF ztmpl_content.
+
+  LOOP AT lt_raw INTO DATA(lv_line).
+    " Split lines > 255 chars into multiple rows
+    DATA lv_remaining TYPE string.
+    lv_remaining = lv_line.
+
+    WHILE lv_remaining IS NOT INITIAL.
+      DATA lv_len TYPE i.
+      lv_len = strlen( lv_remaining ).
+      IF lv_len <= 255.
+        APPEND VALUE ztmpl_content(
+          mandt        = sy-mandt
+          ztemplate_id = p_id
+          zseq         = lv_seq
+          zcontent     = lv_remaining ) TO lt_insert.
+        CLEAR lv_remaining.
+      ELSE.
+        APPEND VALUE ztmpl_content(
+          mandt        = sy-mandt
+          ztemplate_id = p_id
+          zseq         = lv_seq
+          zcontent     = lv_remaining(255) ) TO lt_insert.
+        lv_remaining = lv_remaining+255.
+      ENDIF.
+      lv_seq = lv_seq + 1.
+    ENDWHILE.
+  ENDLOOP.
+
+  INSERT ztmpl_content FROM TABLE lt_insert.
+  IF sy-subrc = 0.
+    COMMIT WORK.
+    MESSAGE |{ lines( lt_insert ) } linha(s) inserida(s) para template { p_id }.|
+      TYPE 'S'.
+  ELSE.
+    ROLLBACK WORK.
+    MESSAGE 'Erro ao inserir linhas do template.' TYPE 'E'.
+  ENDIF.
