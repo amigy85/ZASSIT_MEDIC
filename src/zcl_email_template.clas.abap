@@ -27,9 +27,7 @@
 CLASS zcl_email_template DEFINITION
   PUBLIC
   FINAL
-  CREATE PUBLIC
-  " Unit test class accesses inject_raw_html (FOR TESTING method)
-  FRIENDS ltcl_email_template_test.
+  CREATE PUBLIC.
 
   PUBLIC SECTION.
 

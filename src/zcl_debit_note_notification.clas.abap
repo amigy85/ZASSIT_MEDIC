@@ -25,8 +25,7 @@
 CLASS zcl_debit_note_notification DEFINITION
   PUBLIC
   FINAL
-  CREATE PUBLIC
-  FRIENDS ltcl_notification_test.
+  CREATE PUBLIC.
 
   PUBLIC SECTION.
 
